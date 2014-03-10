@@ -44,6 +44,35 @@
    Revision 1.0 - 2007: James S. Plank
  */
 
+
+
+// -------------------------------------------------------------------------
+// declaration of 64/128-bit vector operations depending on compiler used 
+// -------------------------------------------------------------------------
+#ifndef VECTOR_OP_NONE
+#if __GNUC__ > 4 || \
+  ( (__GNUC__ == 4) && (__GNUC_MINOR__ >= 4) ) ||	\
+  (__clang__ == 1 )
+#ifdef VECTOR_OP_DEBUG
+#pragma message "* using 128-bit vector operations in " __FILE__ 
+#endif
+// -------------------------------------------------------------------------
+// use 128-bit pointer
+// -------------------------------------------------------------------------
+typedef long vector_op_t __attribute__ ((vector_size (16)));
+#define VECTOR_WORDSIZE 16
+#else
+// -------------------------------------------------------------------------
+// use 64-bit pointer
+// -------------------------------------------------------------------------
+typedef unsigned long long vector_op_t;
+#define VECTOR_WORDSIZE 8
+#endif
+#endif
+
+#define is_aligned(POINTER, BYTE_COUNT) \
+  (((uintptr_t)(const void *)(POINTER)) % (BYTE_COUNT) == 0)
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -332,6 +361,24 @@ void galois_w32_region_xor(void *src, void *dest, int nbytes)
 
 void galois_region_xor(char *src, char *dest, int nbytes)
 {
+#ifndef VECTOR_OP_NONE
+  if ( (!(nbytes%VECTOR_WORDSIZE)) &&       
+       is_aligned(src,VECTOR_WORDSIZE) &&
+       is_aligned(dest, VECTOR_WORDSIZE) ) {
+    // ------------------------------------------------------------------------
+    // vector-op patch by Andreas.Joachim.Peters@cern.ch
+    // ------------------------------------------------------------------------
+    vector_op_t* l1 = (vector_op_t*)src;
+    vector_op_t* l2 = (vector_op_t*)dest;
+    char *ctop = src + nbytes;
+    vector_op_t* ltop = (vector_op_t*)ctop;
+    while (l1 < ltop) {
+      *l2++ = ((*l1++)  ^ (*l2));
+    }
+    return;
+  }
+#endif
+
   if (nbytes >= 16) {
     galois_w32_region_xor(src, dest, nbytes);
   } else {
@@ -343,6 +390,7 @@ void galois_region_xor(char *src, char *dest, int nbytes)
     } 
   }
 }
+
 
 int galois_inverse(int y, int w)
 {
