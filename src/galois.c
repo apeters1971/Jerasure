@@ -44,6 +44,39 @@
    Revision 1.0 - 2007: James S. Plank
  */
 
+
+
+// -------------------------------------------------------------------------
+// declaration of 64/128-bit vector operations depending on compiler used 
+// -------------------------------------------------------------------------
+// activate the vector operations at compile time using CFLAGS="-DVECTOR_OP=1" 
+// -------------------------------------------------------------------------
+#ifdef VECTOR_OP
+#if VECTOR_OP == 1
+#if __GNUC__ > 4 || \
+  ( (__GNUC__ == 4) && (__GNUC_MINOR__ >= 4) ) ||	\
+  (__clang__ == 1 )
+#ifdef VECTOR_OP_DEBUG
+#pragma message "* using 128-bit vector operations in " __FILE__ 
+#endif
+// -------------------------------------------------------------------------
+// use 128-bit pointer
+// -------------------------------------------------------------------------
+typedef long vector_op_t __attribute__ ((vector_size (16)));
+#define VECTOR_OP_WORDSIZE 16
+#else
+// -------------------------------------------------------------------------
+// use 64-bit pointer
+// -------------------------------------------------------------------------
+typedef unsigned long long vector_op_t;
+#define VECTOR_OP_WORDSIZE 8
+#endif
+#endif
+#endif
+
+#define is_aligned(POINTER, BYTE_COUNT) \
+  (((uintptr_t)(const void *)(POINTER)) % (BYTE_COUNT) == 0)
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -332,6 +365,26 @@ void galois_w32_region_xor(void *src, void *dest, int nbytes)
 
 void galois_region_xor(char *src, char *dest, int nbytes)
 {
+#ifdef VECTOR_OP
+#if VECTOR_OP == 1
+  if ( (!(nbytes%VECTOR_OP_WORDSIZE)) &&       
+       is_aligned(src,VECTOR_OP_WORDSIZE) &&
+       is_aligned(dest, VECTOR_OP_WORDSIZE) ) {
+    // ------------------------------------------------------------------------
+    // vector-op support: Andreas.Joachim.Peters@cern.ch
+    // ------------------------------------------------------------------------
+    vector_op_t* l1 = (vector_op_t*)src;
+    vector_op_t* l2 = (vector_op_t*)dest;
+    char *ctop = src + nbytes;
+    vector_op_t* ltop = (vector_op_t*)ctop;
+    while (l1 < ltop) {
+      *l2++ = ((*l1++)  ^ (*l2));
+    }
+    return;
+  }
+#endif
+#endif
+
   if (nbytes >= 16) {
     galois_w32_region_xor(src, dest, nbytes);
   } else {
@@ -343,6 +396,7 @@ void galois_region_xor(char *src, char *dest, int nbytes)
     } 
   }
 }
+
 
 int galois_inverse(int y, int w)
 {
